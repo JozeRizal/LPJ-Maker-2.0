@@ -74,13 +74,14 @@ export const analyzeReceipt = async (base64Image: string, userApiKey?: string) =
     3. Masukkan Pajak (PPN/Tax) sebagai item terpisah jika ada.
     4. Pastikan jumlah total dari semua item yang kamu ekstrak SAMA dengan "Grand Total" yang tertera di nota.
     5. Jika ada teks yang buram, berikan estimasi terbaik berdasarkan konteks harga.
+    6. JANGAN gunakan huruf kapital semua untuk deskripsi. Gunakan format huruf normal (contoh: dari "SUSU" menjadi "Susu").
 
     Format JSON yang harus dikembalikan:
     {
       "transactions": [
         {
           "date": "YYYY-MM-DD (Gunakan tanggal yang tertera di nota, jika tidak ada gunakan hari ini)",
-          "description": "Nama Barang / Jasa",
+          "description": "Nama Barang / Jasa (Gunakan Huruf Normal, Bukan Kapital Semua)",
           "amount": angka_saja (positif untuk barang, negatif untuk diskon),
           "type": "Selalu 'Pengeluaran'"
         }
