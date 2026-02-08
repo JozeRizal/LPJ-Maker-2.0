@@ -15,7 +15,8 @@ import {
   User,
   FileDown,
   FilePlus,
-  Key
+  Key,
+  X
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -26,6 +27,7 @@ import { exportToWord } from './services/wordService';
 import { exportToGoogleDocs } from './services/gdocService';
 
 const STORAGE_KEY = 'lpj_master_v8';
+const API_KEY_STORAGE = 'lpj_user_api_key';
 
 const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +64,11 @@ const App: React.FC = () => {
     receipt: ''
   });
 
+  // API Key States
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [activeApiKey, setActiveApiKey] = useState('');
+
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [isScanningAI, setIsScanningAI] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -70,6 +77,7 @@ const App: React.FC = () => {
   const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
+    // Load App Data
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
@@ -78,6 +86,14 @@ const App: React.FC = () => {
         setConfig(parsed.config || config);
       } catch (e) {}
     }
+    
+    // Load API Key
+    const savedKey = localStorage.getItem(API_KEY_STORAGE);
+    if (savedKey) {
+      setActiveApiKey(savedKey);
+      setApiKeyInput(savedKey);
+    }
+
     setHasLoaded(true);
   }, []);
 
@@ -86,6 +102,13 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ config, transactions }));
     }
   }, [config, transactions, hasLoaded]);
+
+  const saveApiKey = () => {
+    localStorage.setItem(API_KEY_STORAGE, apiKeyInput);
+    setActiveApiKey(apiKeyInput);
+    setShowKeyModal(false);
+    alert("Kunci API berhasil disimpan secara lokal.");
+  };
 
   const addTransaction = (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +131,7 @@ const App: React.FC = () => {
       setIsScanningAI(true);
       try {
         const base64 = await fileToBase64(file);
-        const result = await analyzeReceipt(base64);
+        const result = await analyzeReceipt(base64, activeApiKey);
         if (result?.transactions) {
           const mapped = result.transactions.map((t: any) => ({
             ...t,
@@ -119,7 +142,7 @@ const App: React.FC = () => {
           setTransactions(prev => [...prev, ...mapped]);
         }
       } catch (err) {
-        alert("Gagal memproses nota. Pastikan gambar jelas.");
+        alert("Gagal memproses nota. Pastikan gambar jelas dan Kunci API benar.");
       } finally {
         setIsScanningAI(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -228,6 +251,52 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#f1f5f9] text-slate-900 pb-20">
+      {/* API Key Modal Overlay */}
+      {showKeyModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <Key className="w-6 h-6 text-blue-400" />
+                <h3 className="text-xl font-bold">Pengaturan Kunci API</h3>
+              </div>
+              <button onClick={() => setShowKeyModal(false)} className="hover:bg-slate-800 p-1 rounded-full transition-colors">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-8">
+              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+                Masukkan <strong>Google Gemini API Key</strong> Anda untuk mengaktifkan fitur scan nota otomatis dan narasi laporan berbasis AI. 
+                Kunci ini disimpan secara lokal di browser Anda.
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <label className={labelStyle}>Gemini API Key</label>
+                  <input 
+                    type="password" 
+                    value={apiKeyInput} 
+                    onChange={e => setApiKeyInput(e.target.value)} 
+                    className={inputStyle} 
+                    placeholder="AIzaSy..." 
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setShowKeyModal(false)} className="flex-1 px-4 py-3 rounded-xl font-bold border-2 border-slate-100 text-slate-400 hover:bg-slate-50 transition-all">
+                    Batal
+                  </button>
+                  <button onClick={saveApiKey} className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95">
+                    Simpan Kunci
+                  </button>
+                </div>
+                <p className="text-[10px] text-center text-slate-400 mt-4">
+                  Belum punya kunci? Dapatkan secara gratis di <a href="https://ai.google.dev" target="_blank" className="text-blue-500 underline font-bold">Google AI Studio</a>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <nav className="bg-slate-900 text-white p-4 shadow-xl sticky top-0 z-50 no-print">
         <div className="container mx-auto flex justify-between items-center max-w-6xl">
           <div className="flex items-center gap-3">
@@ -236,11 +305,12 @@ const App: React.FC = () => {
           </div>
           <div className="flex gap-2">
             <button 
-              onClick={() => (window as any).aistudio.openSelectKey()} 
-              className="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 text-xs border border-slate-700"
+              onClick={() => setShowKeyModal(true)} 
+              className={`px-3 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 text-xs border ${activeApiKey ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400' : 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'}`}
               title="Input Google API Key"
             >
-              <Key className="w-4 h-4 text-blue-400" /> <span className="hidden sm:inline">KUNCI API</span>
+              <Key className={`w-4 h-4 ${activeApiKey ? 'text-emerald-400' : 'text-blue-400'}`} /> 
+              <span className="hidden sm:inline">{activeApiKey ? 'KUNCI AKTIF' : 'KUNCI API'}</span>
             </button>
             <button onClick={handleDownloadPDF} disabled={isExporting || isExportingWord || isExportingGDoc} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm">
               {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} PDF
@@ -380,7 +450,7 @@ const App: React.FC = () => {
                 <h2 className="text-xl font-bold flex items-center gap-2 text-purple-700"><Sparkles className="w-6 h-6" /> Narasi AI</h2>
                 <button onClick={async () => {
                     setIsGeneratingAI(true);
-                    const res = await generateReportNarrative({ config, transactions });
+                    const res = await generateReportNarrative({ config, transactions }, activeApiKey);
                     if (res) setConfig({...config, background: res.background, conclusion: res.conclusion});
                     setIsGeneratingAI(false);
                 }} disabled={isGeneratingAI || transactions.length === 0} className="bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-500 transition shadow-md disabled:opacity-50">
