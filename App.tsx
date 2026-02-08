@@ -116,13 +116,17 @@ const App: React.FC = () => {
     const tx: Transaction = {
       id: generateId(),
       date: newTx.date || new Date().toISOString().split('T')[0],
-      description: newTx.description.toUpperCase(),
+      description: newTx.description,
       type: newTx.type,
       amount: Number(newTx.amount),
       receiptBase64: newTx.receipt
     };
     setTransactions([...transactions, tx]);
     setNewTx({ ...newTx, description: '', amount: '', receipt: '' });
+  };
+
+  const updateTransaction = (id: string, updates: Partial<Transaction>) => {
+    setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
   };
 
   const handleScanReceipt = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -420,21 +424,64 @@ const App: React.FC = () => {
                 </div>
               </form>
 
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase border-b">
-                    <tr><th className="p-4">Tgl</th><th className="p-4">Keterangan</th><th className="p-4 text-right">Nominal</th><th className="p-4"></th></tr>
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                <table className="w-full text-left min-w-[800px]">
+                  <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] uppercase border-b">
+                    <tr>
+                      <th className="p-3 w-10 text-center">No</th>
+                      <th className="p-3 w-32">Tgl</th>
+                      <th className="p-3">Keterangan</th>
+                      <th className="p-3 w-32 text-right">Debit (Masuk)</th>
+                      <th className="p-3 w-32 text-right">Kredit (Keluar)</th>
+                      <th className="p-3 w-10"></th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y text-sm text-slate-700">
                     {transactions.length === 0 ? (
-                      <tr><td colSpan={4} className="p-10 text-center text-slate-400 italic">Gunakan Scan Nota untuk otomatisasi.</td></tr>
+                      <tr><td colSpan={6} className="p-10 text-center text-slate-400 italic">Belum ada data. Gunakan formulir di atas atau Scan Nota.</td></tr>
                     ) : (
-                      transactions.map(t => (
+                      transactions.map((t, i) => (
                         <tr key={t.id} className="hover:bg-slate-50">
-                          <td className="p-4 font-mono text-slate-500">{t.date}</td>
-                          <td className="p-4 font-semibold text-slate-700 uppercase">{t.description}</td>
-                          <td className={`p-4 font-mono font-bold text-right ${t.type === 'Pemasukan' ? 'text-emerald-600' : 'text-rose-600'}`}>{formatIDR(t.amount)}</td>
-                          <td className="p-4 text-right"><button onClick={() => setTransactions(transactions.filter(x => x.id !== t.id))} className="text-slate-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button></td>
+                          <td className="p-2 text-center text-xs text-slate-400">{i + 1}</td>
+                          <td className="p-2">
+                            <input 
+                              type="date" 
+                              value={t.date} 
+                              onChange={e => updateTransaction(t.id, { date: e.target.value })}
+                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input 
+                              type="text" 
+                              value={t.description} 
+                              onChange={e => updateTransaction(t.id, { description: e.target.value })}
+                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-medium"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input 
+                              type="number" 
+                              value={t.type === 'Pemasukan' ? t.amount : ''} 
+                              placeholder="0"
+                              onChange={e => updateTransaction(t.id, { amount: Number(e.target.value), type: 'Pemasukan' })}
+                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-emerald-400 text-right text-emerald-600 font-bold"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <input 
+                              type="number" 
+                              value={t.type === 'Pengeluaran' ? t.amount : ''} 
+                              placeholder="0"
+                              onChange={e => updateTransaction(t.id, { amount: Number(e.target.value), type: 'Pengeluaran' })}
+                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-rose-400 text-right text-rose-600 font-bold"
+                            />
+                          </td>
+                          <td className="p-2 text-center">
+                            <button onClick={() => setTransactions(transactions.filter(x => x.id !== t.id))} className="text-slate-300 hover:text-red-500 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       ))
                     )}
@@ -495,7 +542,7 @@ const App: React.FC = () => {
                   <tr key={t.id} style={{ minHeight: '40px' }} className="text-black">
                     <td className="border border-black p-2.5 text-center align-middle text-black">{i + 1}</td>
                     <td className="border border-black p-2.5 text-center font-mono align-middle text-black">{t.date}</td>
-                    <td className="border border-black p-2.5 font-medium uppercase align-middle text-black">{t.description}</td>
+                    <td className="border border-black p-2.5 font-medium align-middle text-black">{t.description}</td>
                     <td className="border border-black p-2.5 text-right align-middle text-black">{t.type === 'Pemasukan' ? formatIDR(t.amount) : '-'}</td>
                     <td className="border border-black p-2.5 text-right align-middle text-black">{t.type === 'Pengeluaran' ? formatIDR(t.amount) : '-'}</td>
                   </tr>
