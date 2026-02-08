@@ -80,7 +80,7 @@ export const analyzeReceipt = async (base64Image: string, userApiKey?: string) =
       "transactions": [
         {
           "date": "YYYY-MM-DD (Gunakan tanggal yang tertera di nota, jika tidak ada gunakan hari ini)",
-          "description": "Nama Barang / Jasa (Gunakan Huruf Kapital)",
+          "description": "Nama Barang / Jasa",
           "amount": angka_saja (positif untuk barang, negatif untuk diskon),
           "type": "Selalu 'Pengeluaran'"
         }
