@@ -17,3 +17,8 @@ export const fileToBase64 = (file: File): Promise<string> => {
 };
 
 export const generateId = () => Math.random().toString(36).substr(2, 9);
+
+export const toTitleCase = (str: string): string => {
+  if (!str) return "";
+  return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+};
