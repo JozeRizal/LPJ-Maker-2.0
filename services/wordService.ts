@@ -11,7 +11,6 @@ import {
   WidthType, 
   BorderStyle, 
   ImageRun,
-  HeadingLevel,
   UnderlineType,
   TableLayoutType
 } from "docx";
@@ -19,221 +18,197 @@ import saveAs from "file-saver";
 import { LPJData } from "../types";
 import { formatIDR } from "../utils";
 
-// Satuan twips (1/1440 inci). A4 content area ~9000 twips.
-const COL_WIDTHS = {
-  no: 700,
-  date: 1500,
-  desc: 3200,
-  debit: 1800,
-  kredit: 1800
-};
+const COL_WIDTHS = { no: 700, date: 1500, desc: 3200, debit: 1800, kredit: 1800 };
 
 export const exportToWord = async (data: LPJData) => {
   const { config, transactions } = data;
+  const isLengkap = config.reportMode === 'Lengkap';
+  const customTitle = config.reportTitle || "LAPORAN PERTANGGUNGJAWABAN";
+  const customHeader = config.reportTitle || "LAPORAN PERTANGGUNGJAWABAN";
   
-  const totalIncome = transactions
-    .filter(t => t.type === 'Pemasukan')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = transactions
-    .filter(t => t.type === 'Pengeluaran')
-    .reduce((sum, t) => sum + t.amount, 0);
+  const totalIncome = transactions.filter(t => t.type === 'Pemasukan').reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = transactions.filter(t => t.type === 'Pengeluaran').reduce((sum, t) => sum + t.amount, 0);
   const balance = totalIncome - totalExpense;
 
-  const tableHeaderRow = new TableRow({
-    children: [
-      new TableCell({ width: { size: COL_WIDTHS.no, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "No", bold: true })], alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: COL_WIDTHS.date, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Tanggal", bold: true })], alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: COL_WIDTHS.desc, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Deskripsi", bold: true })], alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: COL_WIDTHS.debit, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Debit", bold: true })], alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: COL_WIDTHS.kredit, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Kredit", bold: true })], alignment: AlignmentType.CENTER })] }),
-    ],
-  });
+  const children: any[] = [];
 
-  const transactionRows = transactions.map((t, i) => {
-    return new TableRow({
-      children: [
-        new TableCell({ width: { size: COL_WIDTHS.no, type: WidthType.DXA }, children: [new Paragraph({ text: (i + 1).toString(), alignment: AlignmentType.CENTER })] }),
-        new TableCell({ width: { size: COL_WIDTHS.date, type: WidthType.DXA }, children: [new Paragraph({ text: t.date, alignment: AlignmentType.CENTER })] }),
-        new TableCell({ width: { size: COL_WIDTHS.desc, type: WidthType.DXA }, children: [new Paragraph({ text: t.description.toUpperCase() })] }),
-        new TableCell({ width: { size: COL_WIDTHS.debit, type: WidthType.DXA }, children: [new Paragraph({ text: t.type === 'Pemasukan' ? formatIDR(t.amount) : "-", alignment: AlignmentType.RIGHT })] }),
-        new TableCell({ width: { size: COL_WIDTHS.kredit, type: WidthType.DXA }, children: [new Paragraph({ text: t.type === 'Pengeluaran' ? formatIDR(t.amount) : "-", alignment: AlignmentType.RIGHT })] }),
-      ],
-    });
-  });
+  // Helper untuk convert base64 ke buffer
+  const base64ToBuffer = (base64: string) => {
+    const parts = base64.split(';');
+    const mime = parts[0].split(':')[1];
+    const data = atob(parts[1].split(',')[1]);
+    const array = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i++) {
+      array[i] = data.charCodeAt(i);
+    }
+    return array;
+  };
 
-  const totalRow = new TableRow({
-    children: [
-      new TableCell({ 
-        columnSpan: 3, 
-        width: { size: COL_WIDTHS.no + COL_WIDTHS.date + COL_WIDTHS.desc, type: WidthType.DXA }, 
-        children: [new Paragraph({ children: [new TextRun({ text: "SUBTOTAL KAS", bold: true })], alignment: AlignmentType.RIGHT })] 
-      }),
-      new TableCell({ width: { size: COL_WIDTHS.debit, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: formatIDR(totalIncome), bold: true })], alignment: AlignmentType.RIGHT })] }),
-      new TableCell({ width: { size: COL_WIDTHS.kredit, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: formatIDR(totalExpense), bold: true })], alignment: AlignmentType.RIGHT })] }),
-    ],
-  });
+  // 1. Cover (Mode Lengkap)
+  if (isLengkap) {
+    if (config.logoBase64) {
+      children.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { before: 1000 },
+          children: [
+            new ImageRun({
+              data: base64ToBuffer(config.logoBase64),
+              transformation: { width: 150, height: 150 },
+            } as any),
+          ],
+        })
+      );
+    }
 
-  const balanceRow = new TableRow({
-    children: [
-      new TableCell({ 
-        columnSpan: 3, 
-        width: { size: COL_WIDTHS.no + COL_WIDTHS.date + COL_WIDTHS.desc, type: WidthType.DXA }, 
-        children: [new Paragraph({ children: [new TextRun({ text: "SALDO AKHIR PANITIA", bold: true })], alignment: AlignmentType.RIGHT })] 
-      }),
-      new TableCell({ 
-        columnSpan: 2, 
-        width: { size: COL_WIDTHS.debit + COL_WIDTHS.kredit, type: WidthType.DXA }, 
-        children: [new Paragraph({ children: [new TextRun({ text: formatIDR(balance), bold: true })], alignment: AlignmentType.CENTER })] 
-      }),
-    ],
-  });
-
-  const allPossibleSigners = [
-    { name: config.chairpersonName, title: config.chairpersonTitle || 'Ketua Panitia' },
-    { name: config.treasurerName, title: config.treasurerTitle || 'Bendahara' },
-    { name: config.official3Name, title: config.official3Title || 'Jabatan 3' },
-    { name: config.official4Name, title: config.official4Title || 'Jabatan 4' }
-  ];
-  const activeSigners = allPossibleSigners.filter(s => s.name && s.name.trim() !== '');
-  const displaySigners = activeSigners.length === 0 ? allPossibleSigners.slice(0, 2) : activeSigners;
-
-  const signatureCells = displaySigners.map(s => {
-    return new TableCell({
-      width: { size: 4500, type: WidthType.DXA }, // Setengah lebar A4
-      borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
-      children: [
-        new Paragraph({ children: [new TextRun({ text: s.title, bold: true })], alignment: AlignmentType.CENTER, spacing: { after: 100 } }),
-        new Paragraph({ text: "", spacing: { before: 1200, after: 1200 } }),
-        new Paragraph({ 
-          children: [new TextRun({ text: s.name || "....................", bold: true, underline: { type: UnderlineType.SINGLE } })], 
-          alignment: AlignmentType.CENTER 
-        }),
-      ],
-    });
-  });
-
-  const signatureRows = [];
-  for (let i = 0; i < signatureCells.length; i += 2) {
-    signatureRows.push(new TableRow({
-      children: signatureCells.slice(i, i + 2)
-    }));
+    children.push(
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: config.logoBase64 ? 800 : 2000 }, children: [new TextRun({ text: customTitle.toUpperCase(), bold: true, size: 36 })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 800 }, children: [new TextRun({ text: (config.eventName || "").toUpperCase(), bold: true, size: 48, color: "1E3A8A" })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 400, after: 1000 }, children: [new TextRun({ text: (config.organizationName || "").toUpperCase(), bold: true, size: 28 })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 3000 }, children: [new TextRun({ text: (config.location || "[LOKASI]").toUpperCase(), bold: true, size: 24 })] }),
+      new Paragraph({ children: [], pageBreakBefore: true })
+    );
   }
 
-  const sections = [
-    {
-      properties: {},
-      children: [
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [
-            new TextRun({ text: "LAPORAN PERTANGGUNGJAWABAN (LPJ) KEUANGAN", bold: true, size: 28, underline: { type: UnderlineType.SINGLE } }),
-          ],
-        }),
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 200 },
-          children: [
-            new TextRun({ text: config.eventName.toUpperCase() || "[NAMA KEGIATAN]", bold: true, size: 36, color: "1E3A8A" }),
-          ],
-        }),
-        config.organizationName ? new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [
-            new TextRun({ text: config.organizationName.toUpperCase(), bold: true, size: 24 }),
-          ],
-        }) : null,
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          spacing: { before: 200, after: 400 },
-          children: [
-            new TextRun({ text: `TANGGAL LAPORAN: ${config.reportDate}`, bold: true, font: "Courier New" }),
-          ],
-        }),
-
-        new Paragraph({ children: [new TextRun({ text: "I. PENDAHULUAN", bold: true })], spacing: { before: 400, after: 200 } }),
-        new Paragraph({ children: [new TextRun(config.background || "Belum diisi.")], alignment: AlignmentType.JUSTIFIED, spacing: { after: 400 } }),
-
-        new Paragraph({ children: [new TextRun({ text: "II. RINCIAN ANGGARAN KEUANGAN", bold: true })], spacing: { before: 400, after: 200 } }),
-        new Table({
-          width: { size: 9000, type: WidthType.DXA },
-          layout: TableLayoutType.FIXED,
-          rows: [tableHeaderRow, ...transactionRows, totalRow, balanceRow],
-        }),
-
-        new Paragraph({ children: [new TextRun({ text: "III. PENUTUP", bold: true })], spacing: { before: 400, after: 200 } }),
-        new Paragraph({ children: [new TextRun(config.conclusion || "Belum diisi.")], alignment: AlignmentType.JUSTIFIED, spacing: { after: 800 } }),
-
-        new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: "MENGETAHUI,", bold: true })],
-          spacing: { before: 600, after: 300 }
-        }),
-        new Table({
-          width: { size: 9000, type: WidthType.DXA },
-          layout: TableLayoutType.FIXED,
-          rows: signatureRows,
-          borders: { 
-            top: { style: BorderStyle.NONE }, 
-            bottom: { style: BorderStyle.NONE }, 
-            left: { style: BorderStyle.NONE }, 
-            right: { style: BorderStyle.NONE },
-            insideHorizontal: { style: BorderStyle.NONE },
-            insideVertical: { style: BorderStyle.NONE }
-          },
-        }),
-      ].filter(Boolean) as any[],
-    },
-  ];
-
-  const receiptImages = Array.from(new Set(transactions.map(t => t.receiptBase64).filter(Boolean)));
-  if (receiptImages.length > 0) {
-    (sections[0].children as any[]).push(new Paragraph({ 
-      children: [new TextRun({ text: "LAMPIRAN BUKTI TRANSAKSI", bold: true, size: 40 })],
-      alignment: AlignmentType.CENTER, 
-      spacing: { before: 1000, after: 400 },
-      pageBreakBefore: true
-    }));
-    
-    for (const [idx, img] of receiptImages.entries()) {
-        const relatedTx = transactions.find(t => t.receiptBase64 === img);
-        (sections[0].children as any[]).push(new Paragraph({
-            alignment: AlignmentType.CENTER,
+  // Header Formal dengan Logo (Kop)
+  if (config.logoBase64) {
+    children.push(
+      new Table({
+        width: { size: 9000, type: WidthType.DXA },
+        borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.SINGLE, size: 30 }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE }, insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE } },
+        rows: [
+          new TableRow({
             children: [
-                new TextRun({ text: `BUKTI TRANSAKSI ${idx + 1}: ${relatedTx ? relatedTx.description : ''}`, bold: true, size: 24 }),
-            ],
-            spacing: { before: 400, after: 200 }
-        }));
-        try {
-            const response = await fetch(img!);
-            const arrayBuffer = await response.arrayBuffer();
-            
-            // Cast options to any to fix docx union type inference issue
-            (sections[0].children as any[]).push(new Paragraph({
-                alignment: AlignmentType.CENTER,
+              new TableCell({
+                width: { size: 2000, type: WidthType.DXA },
                 children: [
-                    new ImageRun({
-                        data: new Uint8Array(arrayBuffer),
-                        transformation: { width: 450, height: 600 },
-                    } as any),
+                  new Paragraph({
+                    children: [
+                      new ImageRun({
+                        data: base64ToBuffer(config.logoBase64),
+                        transformation: { width: 80, height: 80 },
+                      } as any),
+                    ],
+                  }),
                 ],
-                spacing: { after: 800 }
-            }));
-        } catch (e) {
-            console.error("Failed to add image to Word doc", e);
-        }
-    }
+              }),
+              new TableCell({
+                width: { size: 7000, type: WidthType.DXA },
+                children: [
+                  new Paragraph({ alignment: AlignmentType.LEFT, children: [new TextRun({ text: customHeader.toUpperCase(), bold: true, size: 24 })] }),
+                  new Paragraph({ alignment: AlignmentType.LEFT, children: [new TextRun({ text: (config.eventName || "").toUpperCase(), bold: true, size: 28, color: "1E3A8A" })] }),
+                  new Paragraph({ alignment: AlignmentType.LEFT, children: [new TextRun({ text: (config.organizationName || "").toUpperCase(), bold: true, size: 18 })] }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+      new Paragraph({ spacing: { after: 400 } })
+    );
+  } else {
+    children.push(
+      new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: customHeader.toUpperCase(), bold: true, size: 28, underline: { type: UnderlineType.SINGLE } })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200 }, children: [new TextRun({ text: (config.eventName || "").toUpperCase(), bold: true, size: 36, color: "1E3A8A" })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 400 }, children: [new TextRun({ text: `TANGGAL LAPORAN: ${config.reportDate}`, bold: true, font: "Courier New" })] })
+    );
   }
 
-  const doc = new Document({ 
-    sections,
-    styles: {
-      default: {
-        document: {
-          run: { font: "Arial", size: 22 },
-        },
-      },
-    }
-  });
+  // Bab I: Pendahuluan
+  children.push(
+    new Paragraph({ children: [new TextRun({ text: "I. PENDAHULUAN", bold: true, size: 24 })], spacing: { before: 400, after: 200 } }),
+    new Paragraph({ children: [new TextRun({ text: "1.1 Latar Belakang", bold: true, size: 24 })] }),
+    new Paragraph({ children: [new TextRun({ text: config.background || "Belum diisi.", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 200 } })
+  );
+
+  if (isLengkap) {
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: "1.2 Tujuan Kegiatan", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.tujuan || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "1.3 Sasaran / Target", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.sasaran || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 400 } })
+    );
+
+    // Bab II: Pelaksanaan
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: "II. PELAKSANAAN KEGIATAN", bold: true, size: 24 })], spacing: { before: 400, after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "2.1 Waktu dan Tempat", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.waktuTempat || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "2.2 Mekanisme Kegiatan", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.mekanisme || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 400 } })
+    );
+  }
+
+  // Bab Keuangan
+  children.push(
+    new Paragraph({ children: [new TextRun({ text: isLengkap ? "III. LAPORAN KEUANGAN" : "II. RINCIAN ANGGARAN KEUANGAN", bold: true, size: 24 })], spacing: { before: 400, after: 200 } })
+  );
+
+  const tableRows = [
+    new TableRow({
+      children: [
+        new TableCell({ width: { size: COL_WIDTHS.no, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "No", bold: true })], alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: COL_WIDTHS.date, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Tanggal", bold: true })], alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: COL_WIDTHS.desc, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Deskripsi", bold: true })], alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: COL_WIDTHS.debit, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Debit", bold: true })], alignment: AlignmentType.CENTER })] }),
+        new TableCell({ width: { size: COL_WIDTHS.kredit, type: WidthType.DXA }, children: [new Paragraph({ children: [new TextRun({ text: "Kredit", bold: true })], alignment: AlignmentType.CENTER })] }),
+      ],
+    }),
+    ...transactions.map((t, i) => new TableRow({
+      children: [
+        new TableCell({ children: [new Paragraph({ text: (t.manualNo || (i + 1).toString()), alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: t.date, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: t.description })] }),
+        new TableCell({ children: [new Paragraph({ text: t.type === 'Pemasukan' ? formatIDR(t.amount) : "-", alignment: AlignmentType.RIGHT })] }),
+        new TableCell({ children: [new Paragraph({ text: t.type === 'Pengeluaran' ? formatIDR(t.amount) : "-", alignment: AlignmentType.RIGHT })] }),
+      ],
+    })),
+    new TableRow({
+      children: [
+        new TableCell({ columnSpan: 3, children: [new Paragraph({ children: [new TextRun({ text: "SALDO AKHIR", bold: true })], alignment: AlignmentType.RIGHT })] }),
+        new TableCell({ columnSpan: 2, children: [new Paragraph({ children: [new TextRun({ text: formatIDR(balance), bold: true })], alignment: AlignmentType.CENTER })] }),
+      ],
+    }),
+  ];
+
+  children.push(new Table({ width: { size: 9000, type: WidthType.DXA }, layout: TableLayoutType.FIXED, rows: tableRows }));
+
+  // Bab Penutup
+  children.push(
+    new Paragraph({ children: [new TextRun({ text: isLengkap ? "IV. EVALUASI DAN PENUTUP" : "III. PENUTUP", bold: true, size: 24 })], spacing: { before: 400, after: 200 } })
+  );
+
+  if (isLengkap) {
+    children.push(
+      new Paragraph({ children: [new TextRun({ text: "4.1 Hasil Kegiatan", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.hasil || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "4.2 Hambatan", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.hambatan || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "4.3 Saran", bold: true, size: 24 })] }),
+      new Paragraph({ children: [new TextRun({ text: config.saran || "-", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 200 } }),
+      new Paragraph({ children: [new TextRun({ text: "4.4 Penutup", bold: true, size: 24 })] })
+    );
+  }
+
+  children.push(new Paragraph({ children: [new TextRun({ text: config.conclusion || "Belum diisi.", size: 24 })], alignment: AlignmentType.JUSTIFIED, spacing: { after: 800 } }));
+
+  // Tanda Tangan
+  const displaySigners = [{ name: config.chairpersonName, title: config.chairpersonTitle }, { name: config.treasurerName, title: config.treasurerTitle }].filter(s => s.name);
+  const signatureCells = displaySigners.map(s => new TableCell({
+    borders: { top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } },
+    children: [
+      new Paragraph({ children: [new TextRun({ text: s.title || "", bold: true, size: 24 })], alignment: AlignmentType.CENTER, spacing: { after: 1200 } }),
+      new Paragraph({ children: [new TextRun({ text: s.name || "....................", bold: true, size: 24, underline: { type: UnderlineType.SINGLE } })], alignment: AlignmentType.CENTER }),
+    ],
+  }));
+
+  children.push(new Table({
+    width: { size: 9000, type: WidthType.DXA }, layout: TableLayoutType.FIXED,
+    rows: [new TableRow({ children: signatureCells })],
+    borders: { insideHorizontal: { style: BorderStyle.NONE }, insideVertical: { style: BorderStyle.NONE }, top: { style: BorderStyle.NONE }, bottom: { style: BorderStyle.NONE }, left: { style: BorderStyle.NONE }, right: { style: BorderStyle.NONE } }
+  }));
+
+  const doc = new Document({ sections: [{ children }] });
   const blob = await Packer.toBlob(doc);
   saveAs(blob, `LPJ_${config.eventName || "Laporan"}.docx`);
 };
