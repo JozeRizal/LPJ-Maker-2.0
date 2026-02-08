@@ -26,7 +26,8 @@ import {
   AlertCircle,
   Lightbulb,
   ImageIcon,
-  Upload
+  Upload,
+  Lock
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -38,12 +39,26 @@ import { exportToGoogleDocs } from './services/gdocService';
 
 const STORAGE_KEY = 'lpj_master_v9';
 
+// Define interface for platform API Key integration directly in the global scope augmentation
+// to avoid modifier mismatch and type name collisions.
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
+
 const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
   
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [hasApiKey, setHasApiKey] = useState(false);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  
   const [config, setConfig] = useState<ReportConfig>({
     reportMode: 'Cepat',
     reportTitle: 'LAPORAN PERTANGGUNGJAWABAN',
@@ -92,7 +107,7 @@ const App: React.FC = () => {
   const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
-    // Load App Data
+    // Muat Data Aplikasi
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
@@ -102,6 +117,15 @@ const App: React.FC = () => {
       } catch (e) {}
     }
     
+    // Cek status kunci API
+    const checkStatus = async () => {
+      if (window.aistudio?.hasSelectedApiKey) {
+        const has = await window.aistudio.hasSelectedApiKey();
+        setHasApiKey(has);
+      }
+    };
+    checkStatus();
+    
     setHasLoaded(true);
   }, []);
 
@@ -110,6 +134,17 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ config, transactions }));
     }
   }, [config, transactions, hasLoaded]);
+
+  const handleOpenKeySelector = async () => {
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      // Asumsikan pemilihan berhasil sesuai panduan platform
+      setHasApiKey(true);
+      setIsKeyModalOpen(false);
+    } else {
+      alert("Fitur pemilihan kunci tidak tersedia di lingkungan ini.");
+    }
+  };
 
   const addTransaction = (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,8 +184,14 @@ const App: React.FC = () => {
           }));
           setTransactions(prev => [...prev, ...mapped]);
         }
-      } catch (err) {
-        alert("Gagal memproses nota. Pastikan gambar jelas.");
+      } catch (err: any) {
+        if (err.message?.includes("Requested entity was not found")) {
+           alert("Kunci API tidak valid atau belum dipilih. Silakan klik tombol KUNCI.");
+           setHasApiKey(false);
+           setIsKeyModalOpen(true);
+        } else {
+           alert("Gagal memproses nota. Pastikan gambar jelas.");
+        }
       } finally {
         setIsScanningAI(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
@@ -243,11 +284,14 @@ const App: React.FC = () => {
             <h1 className="text-xl font-black tracking-tight uppercase">LPJ <span className="text-blue-500">Master</span></h1>
           </div>
           <div className="flex gap-2">
-            {/* Tombol Kunci Aktif sesuai screenshot */}
-            <div className="px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all text-sm border bg-emerald-900/30 border-emerald-500/50 text-emerald-400">
-              <Key className="w-4 h-4 text-emerald-400" /> 
-              <span>KUNCI AKTIF</span>
-            </div>
+            {/* Tombol Kunci Aktif sesuai screenshot user */}
+            <button 
+              onClick={() => setIsKeyModalOpen(true)}
+              className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all text-sm border active:scale-95 ${hasApiKey ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400' : 'bg-amber-900/30 border-amber-500/50 text-amber-400'}`}
+            >
+              <Key className={`w-4 h-4 ${hasApiKey ? 'text-emerald-400' : 'text-amber-400'}`} /> 
+              <span>{hasApiKey ? 'KUNCI AKTIF' : 'INPUT KUNCI'}</span>
+            </button>
             
             <button onClick={handleDownloadPDF} disabled={isExporting} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm">
               {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} PDF
@@ -258,6 +302,37 @@ const App: React.FC = () => {
           </div>
         </div>
       </nav>
+
+      {/* Modal Pengaturan Kunci */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm no-print">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-black text-slate-800 flex items-center gap-2"><Lock className="w-5 h-5 text-blue-600"/> PENGATURAN API KEY</h3>
+              <button onClick={() => setIsKeyModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X className="w-6 h-6"/></button>
+            </div>
+            <div className="p-8 space-y-4">
+              <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl flex gap-3">
+                <AlertCircle className="w-5 h-5 text-blue-600 shrink-0" />
+                <p className="text-xs text-blue-800 leading-relaxed font-medium">
+                  Untuk mengaktifkan fitur AI (Scan Nota & Narasi), Anda perlu menghubungkan kunci API Gemini Anda. Kunci ini tersimpan aman di browser Anda.
+                </p>
+              </div>
+              <div className="pt-4">
+                <button 
+                  onClick={handleOpenKeySelector} 
+                  className="w-full px-6 py-4 rounded-2xl font-black text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-3"
+                >
+                  <Key className="w-5 h-5" /> INPUT / PILIH API KEY
+                </button>
+              </div>
+              <p className="text-[10px] text-center text-slate-400 pt-4 uppercase font-bold tracking-widest">
+                Dapatkan key di <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-blue-500 underline">Google AI Studio</a>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="container mx-auto px-4 max-w-6xl py-8 space-y-8 no-print">
         {/* Mode Switch */}
@@ -483,9 +558,13 @@ const App: React.FC = () => {
                           }));
                         }
                       }
-                    } catch (err) {
-                      console.error(err);
-                      alert("AI gagal memproses narasi. Pastikan data terisi.");
+                    } catch (err: any) {
+                      if (err.message?.includes("Requested entity was not found")) {
+                        alert("API Key bermasalah atau belum dipilih. Silakan hubungkan KUNCI Anda.");
+                        setHasApiKey(false);
+                      } else {
+                        alert("AI gagal memproses narasi. Pastikan data terisi.");
+                      }
                     } finally {
                       setIsGeneratingAI(false);
                     }
