@@ -21,7 +21,7 @@ import {
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Transaction, TransactionType, ReportConfig, LPJData } from './types';
-import { formatIDR, fileToBase64, generateId } from './utils';
+import { formatIDR, fileToBase64, generateId, toTitleCase } from './utils';
 import { generateReportNarrative, analyzeReceipt } from './services/geminiService';
 import { exportToWord } from './services/wordService';
 import { exportToGoogleDocs } from './services/gdocService';
@@ -116,9 +116,10 @@ const App: React.FC = () => {
     const tx: Transaction = {
       id: generateId(),
       date: newTx.date || new Date().toISOString().split('T')[0],
-      description: newTx.description,
+      description: toTitleCase(newTx.description),
       type: newTx.type,
       amount: Number(newTx.amount),
+      manualNo: (transactions.length + 1).toString(),
       receiptBase64: newTx.receipt
     };
     setTransactions([...transactions, tx]);
@@ -137,10 +138,12 @@ const App: React.FC = () => {
         const base64 = await fileToBase64(file);
         const result = await analyzeReceipt(base64, activeApiKey);
         if (result?.transactions) {
-          const mapped = result.transactions.map((t: any) => ({
+          const mapped = result.transactions.map((t: any, idx: number) => ({
             ...t,
             id: generateId(),
             amount: Number(t.amount),
+            description: toTitleCase(t.description),
+            manualNo: (transactions.length + idx + 1).toString(),
             receiptBase64: base64
           }));
           setTransactions(prev => [...prev, ...mapped]);
@@ -428,7 +431,7 @@ const App: React.FC = () => {
                 <table className="w-full text-left min-w-[800px]">
                   <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] uppercase border-b">
                     <tr>
-                      <th className="p-3 w-10 text-center">No</th>
+                      <th className="p-3 w-16 text-center">No</th>
                       <th className="p-3 w-32">Tgl</th>
                       <th className="p-3">Keterangan</th>
                       <th className="p-3 w-32 text-right">Debit (Masuk)</th>
@@ -442,7 +445,14 @@ const App: React.FC = () => {
                     ) : (
                       transactions.map((t, i) => (
                         <tr key={t.id} className="hover:bg-slate-50">
-                          <td className="p-2 text-center text-xs text-slate-400">{i + 1}</td>
+                          <td className="p-2">
+                            <input 
+                              type="text" 
+                              value={t.manualNo || (i + 1)} 
+                              onChange={e => updateTransaction(t.id, { manualNo: e.target.value })}
+                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400 text-center"
+                            />
+                          </td>
                           <td className="p-2">
                             <input 
                               type="date" 
@@ -540,7 +550,7 @@ const App: React.FC = () => {
               <tbody className="text-black">
                 {transactions.length > 0 ? transactions.map((t, i) => (
                   <tr key={t.id} style={{ minHeight: '40px' }} className="text-black">
-                    <td className="border border-black p-2.5 text-center align-middle text-black">{i + 1}</td>
+                    <td className="border border-black p-2.5 text-center align-middle text-black">{t.manualNo || (i + 1)}</td>
                     <td className="border border-black p-2.5 text-center font-mono align-middle text-black">{t.date}</td>
                     <td className="border border-black p-2.5 font-medium align-middle text-black">{t.description}</td>
                     <td className="border border-black p-2.5 text-right align-middle text-black">{t.type === 'Pemasukan' ? formatIDR(t.amount) : '-'}</td>
