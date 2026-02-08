@@ -3,11 +3,12 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { LPJData } from "../types";
 import { formatIDR } from "../utils";
 
-export const generateReportNarrative = async (data: LPJData) => {
-  // Selalu inisialisasi dengan key terbaru dari process.env
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generateReportNarrative = async (data: LPJData, userApiKey?: string) => {
+  // Gunakan key dari user jika ada, jika tidak gunakan dari environment
+  const apiKey = userApiKey || process.env.API_KEY;
+  if (!apiKey) return null;
 
-  if (!process.env.API_KEY) return null;
+  const ai = new GoogleGenAI({ apiKey });
 
   const totalIncome = data.transactions
     .filter(t => t.type === 'Pemasukan')
@@ -55,10 +56,11 @@ export const generateReportNarrative = async (data: LPJData) => {
   }
 };
 
-export const analyzeReceipt = async (base64Image: string) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const analyzeReceipt = async (base64Image: string, userApiKey?: string) => {
+  const apiKey = userApiKey || process.env.API_KEY;
+  if (!apiKey) return null;
 
-  if (!process.env.API_KEY) return null;
+  const ai = new GoogleGenAI({ apiKey });
 
   const mimeType = base64Image.split(';')[0].split(':')[1];
   const base64Data = base64Image.split(',')[1];
