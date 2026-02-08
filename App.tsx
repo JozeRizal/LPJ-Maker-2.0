@@ -16,28 +16,41 @@ import {
   FileDown,
   FilePlus,
   Key,
-  X
+  X,
+  ClipboardList,
+  Target,
+  Clock,
+  MapPin,
+  Users,
+  Settings2,
+  AlertCircle,
+  Lightbulb,
+  ImageIcon,
+  Upload
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { Transaction, TransactionType, ReportConfig, LPJData } from './types';
+import { Transaction, TransactionType, ReportConfig, LPJData, ReportMode } from './types';
 import { formatIDR, fileToBase64, generateId, toTitleCase } from './utils';
 import { generateReportNarrative, analyzeReceipt } from './services/geminiService';
 import { exportToWord } from './services/wordService';
 import { exportToGoogleDocs } from './services/gdocService';
 
-const STORAGE_KEY = 'lpj_master_v8';
-const API_KEY_STORAGE = 'lpj_user_api_key';
+const STORAGE_KEY = 'lpj_master_v9';
 
 const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
   
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [config, setConfig] = useState<ReportConfig>({
+    reportMode: 'Cepat',
+    reportTitle: 'LAPORAN PERTANGGUNGJAWABAN',
     eventName: '',
     organizationName: '',
     reportDate: new Date().toISOString().split('T')[0],
+    location: '',
     chairpersonName: '',
     chairpersonTitle: 'Ketua Panitia',
     treasurerName: '',
@@ -47,7 +60,16 @@ const App: React.FC = () => {
     official4Name: '',
     official4Title: '',
     background: '',
-    conclusion: ''
+    conclusion: '',
+    tujuan: '',
+    sasaran: '',
+    waktuTempat: '',
+    peserta: '',
+    mekanisme: '',
+    hasil: '',
+    hambatan: '',
+    saran: '',
+    logoBase64: ''
   });
 
   const [newTx, setNewTx] = useState<{
@@ -64,16 +86,9 @@ const App: React.FC = () => {
     receipt: ''
   });
 
-  // API Key States
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [activeApiKey, setActiveApiKey] = useState('');
-
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [isScanningAI, setIsScanningAI] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [isExportingWord, setIsExportingWord] = useState(false);
-  const [isExportingGDoc, setIsExportingGDoc] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
 
   useEffect(() => {
@@ -83,17 +98,10 @@ const App: React.FC = () => {
       try {
         const parsed = JSON.parse(saved);
         setTransactions(parsed.transactions || []);
-        setConfig(parsed.config || config);
+        setConfig(prev => ({ ...prev, ...(parsed.config || {}) }));
       } catch (e) {}
     }
     
-    // Load API Key
-    const savedKey = localStorage.getItem(API_KEY_STORAGE);
-    if (savedKey) {
-      setActiveApiKey(savedKey);
-      setApiKeyInput(savedKey);
-    }
-
     setHasLoaded(true);
   }, []);
 
@@ -102,13 +110,6 @@ const App: React.FC = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ config, transactions }));
     }
   }, [config, transactions, hasLoaded]);
-
-  const saveApiKey = () => {
-    localStorage.setItem(API_KEY_STORAGE, apiKeyInput);
-    setActiveApiKey(apiKeyInput);
-    setShowKeyModal(false);
-    alert("Kunci API berhasil disimpan secara lokal.");
-  };
 
   const addTransaction = (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,7 +137,7 @@ const App: React.FC = () => {
       setIsScanningAI(true);
       try {
         const base64 = await fileToBase64(file);
-        const result = await analyzeReceipt(base64, activeApiKey);
+        const result = await analyzeReceipt(base64);
         if (result?.transactions) {
           const mapped = result.transactions.map((t: any, idx: number) => ({
             ...t,
@@ -149,10 +150,22 @@ const App: React.FC = () => {
           setTransactions(prev => [...prev, ...mapped]);
         }
       } catch (err) {
-        alert("Gagal memproses nota. Pastikan gambar jelas dan Kunci API benar.");
+        alert("Gagal memproses nota. Pastikan gambar jelas.");
       } finally {
         setIsScanningAI(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const base64 = await fileToBase64(file);
+        setConfig({ ...config, logoBase64: base64 });
+      } catch (err) {
+        alert("Gagal mengupload logo.");
       }
     }
   };
@@ -163,7 +176,6 @@ const App: React.FC = () => {
     try {
       window.scrollTo(0, 0);
       await new Promise(r => setTimeout(r, 1500));
-
       const canvas = await html2canvas(reportRef.current, {
         scale: 2,
         useCORS: true,
@@ -172,57 +184,27 @@ const App: React.FC = () => {
         windowWidth: reportRef.current.scrollWidth,
         windowHeight: reportRef.current.scrollHeight
       });
-
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
-      
       const imgWidth = 210;
       const pageHeight = 295;
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       let heightLeft = imgHeight;
       let position = 0;
-
       pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
       heightLeft -= pageHeight;
-
       while (heightLeft > 0) {
         position = heightLeft - imgHeight;
         pdf.addPage();
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
       }
-      
       pdf.save(`LPJ_${config.eventName || 'Laporan'}.pdf`);
     } catch (err) {
       console.error(err);
       alert("Gagal membuat PDF.");
     } finally {
       setIsExporting(false);
-    }
-  };
-
-  const handleDownloadWord = async () => {
-    setIsExportingWord(true);
-    try {
-        await exportToWord({ config, transactions });
-    } catch (err) {
-        console.error(err);
-        alert("Gagal membuat dokumen Word.");
-    } finally {
-        setIsExportingWord(false);
-    }
-  };
-
-  const handleDownloadGDoc = async () => {
-    if (!reportRef.current) return;
-    setIsExportingGDoc(true);
-    try {
-        await exportToGoogleDocs(reportRef.current, `LPJ_${config.eventName || 'Laporan'}`, { config, transactions });
-    } catch (err) {
-        console.error(err);
-        alert("Gagal mengekspor ke Google Doc.");
-    } finally {
-        setIsExportingGDoc(false);
     }
   };
 
@@ -236,74 +218,24 @@ const App: React.FC = () => {
   const formatIndonesianDate = (dateStr: string) => {
     if (!dateStr) return "";
     const [year, month, day] = dateStr.split('-');
-    const months = [
-      "JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI",
-      "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"
-    ];
+    const months = ["JANUARI", "FEBRUARI", "MARET", "APRIL", "MEI", "JUNI", "JULI", "AGUSTUS", "SEPTEMBER", "OKTOBER", "NOVEMBER", "DESEMBER"];
     return `${day} ${months[parseInt(month) - 1]} ${year}`;
   };
 
-  const allPossibleSigners = [
+  const activeSigners = [
     { name: config.chairpersonName, title: config.chairpersonTitle || 'Ketua Panitia' },
     { name: config.treasurerName, title: config.treasurerTitle || 'Bendahara' },
-    { name: config.official3Name, title: config.official3Title || 'Jabatan 3' },
-    { name: config.official4Name, title: config.official4Title || 'Jabatan 4' }
-  ];
-
-  const activeSigners = allPossibleSigners.filter(s => s.name && s.name.trim() !== '');
+    { name: config.official3Name, title: config.official3Title || 'Sekretaris' },
+    { name: config.official4Name, title: config.official4Title || 'Mengetahui' }
+  ].filter(s => s.name && s.name.trim() !== '');
   
-  const displaySigners = activeSigners.length === 0 
-    ? allPossibleSigners.slice(0, 2) 
-    : activeSigners;
+  const displaySigners = activeSigners.length === 0 ? [
+    { name: '', title: 'Ketua Panitia' },
+    { name: '', title: 'Bendahara' }
+  ] : activeSigners;
 
   return (
     <div className="min-h-screen bg-[#f1f5f9] text-slate-900 pb-20">
-      {/* API Key Modal Overlay */}
-      {showKeyModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <Key className="w-6 h-6 text-blue-400" />
-                <h3 className="text-xl font-bold">Pengaturan Kunci API</h3>
-              </div>
-              <button onClick={() => setShowKeyModal(false)} className="hover:bg-slate-800 p-1 rounded-full transition-colors">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <div className="p-8">
-              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
-                Masukkan <strong>Google Gemini API Key</strong> Anda untuk mengaktifkan fitur scan nota otomatis dan narasi laporan berbasis AI. 
-                Kunci ini disimpan secara lokal di browser Anda.
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <label className={labelStyle}>Gemini API Key</label>
-                  <input 
-                    type="password" 
-                    value={apiKeyInput} 
-                    onChange={e => setApiKeyInput(e.target.value)} 
-                    className={inputStyle} 
-                    placeholder="AIzaSy..." 
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button onClick={() => setShowKeyModal(false)} className="flex-1 px-4 py-3 rounded-xl font-bold border-2 border-slate-100 text-slate-400 hover:bg-slate-50 transition-all">
-                    Batal
-                  </button>
-                  <button onClick={saveApiKey} className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-95">
-                    Simpan Kunci
-                  </button>
-                </div>
-                <p className="text-[10px] text-center text-slate-400 mt-4">
-                  Belum punya kunci? Dapatkan secara gratis di <a href="https://ai.google.dev" target="_blank" className="text-blue-500 underline font-bold">Google AI Studio</a>
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <nav className="bg-slate-900 text-white p-4 shadow-xl sticky top-0 z-50 no-print">
         <div className="container mx-auto flex justify-between items-center max-w-6xl">
           <div className="flex items-center gap-3">
@@ -311,24 +243,16 @@ const App: React.FC = () => {
             <h1 className="text-xl font-black tracking-tight uppercase">LPJ <span className="text-blue-500">Master</span></h1>
           </div>
           <div className="flex gap-2">
-            <button 
-              onClick={() => setShowKeyModal(true)} 
-              className={`px-3 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 text-xs border ${activeApiKey ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400' : 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700'}`}
-              title="Input Google API Key"
-            >
-              <Key className={`w-4 h-4 ${activeApiKey ? 'text-emerald-400' : 'text-blue-400'}`} /> 
-              <span className="hidden sm:inline">{activeApiKey ? 'KUNCI AKTIF' : 'KUNCI API'}</span>
-            </button>
-            <button onClick={handleDownloadPDF} disabled={isExporting || isExportingWord || isExportingGDoc} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm">
+            {/* Tombol Kunci Aktif sesuai screenshot */}
+            <div className="px-4 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all text-sm border bg-emerald-900/30 border-emerald-500/50 text-emerald-400">
+              <Key className="w-4 h-4 text-emerald-400" /> 
+              <span>KUNCI AKTIF</span>
+            </div>
+            
+            <button onClick={handleDownloadPDF} disabled={isExporting} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm">
               {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} PDF
             </button>
-            <button onClick={handleDownloadWord} disabled={isExporting || isExportingWord || isExportingGDoc} className="bg-white text-slate-900 hover:bg-slate-100 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm">
-              {isExportingWord ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />} WORD
-            </button>
-            <button onClick={handleDownloadGDoc} disabled={isExporting || isExportingWord || isExportingGDoc} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 text-sm">
-              {isExportingGDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <FilePlus className="w-4 h-4" />} GDOC
-            </button>
-            <button onClick={() => confirm('Hapus semua data?') && (setTransactions([]), setConfig({...config, background: '', conclusion: ''}))} className="bg-slate-800 hover:bg-red-600 p-2.5 rounded-xl transition-colors border border-slate-700">
+            <button onClick={() => confirm('Hapus semua data?') && (setTransactions([]), setConfig({...config, logoBase64: '', background: '', conclusion: '', eventName: '', organizationName: '', reportTitle: 'LAPORAN PERTANGGUNGJAWABAN'}))} className="bg-slate-800 hover:bg-red-600 p-2.5 rounded-xl transition-colors border border-slate-700 shadow-lg active:scale-95 transition-all">
               <RefreshCcw className="w-5 h-5 text-white" />
             </button>
           </div>
@@ -336,6 +260,24 @@ const App: React.FC = () => {
       </nav>
 
       <div className="container mx-auto px-4 max-w-6xl py-8 space-y-8 no-print">
+        {/* Mode Switch */}
+        <div className="flex justify-center">
+          <div className="bg-slate-200 p-1.5 rounded-2xl flex gap-1 shadow-inner">
+            <button 
+              onClick={() => setConfig({...config, reportMode: 'Cepat'})}
+              className={`px-8 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${config.reportMode === 'Cepat' ? 'bg-white text-blue-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <Clock className="w-4 h-4" /> MODE LPJ CEPAT
+            </button>
+            <button 
+              onClick={() => setConfig({...config, reportMode: 'Lengkap'})}
+              className={`px-8 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${config.reportMode === 'Lengkap' ? 'bg-white text-emerald-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              <ClipboardList className="w-4 h-4" /> MODE LPJ LENGKAP
+            </button>
+          </div>
+        </div>
+
         <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white border-b-8 border-emerald-500 p-6 rounded-3xl shadow-sm">
             <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">Pemasukan (+)</p>
@@ -357,44 +299,82 @@ const App: React.FC = () => {
               <h2 className="text-xl font-bold mb-6 flex items-center gap-3 text-slate-800"><Layers className="text-blue-600 w-6 h-6" /> 1. Data Kegiatan</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
                 <div className="md:col-span-2">
+                  <label className={labelStyle}>Judul Dokumen (Misal: Laporan Pertanggungjawaban)</label>
+                  <input type="text" value={config.reportTitle} onChange={e => setConfig({...config, reportTitle: e.target.value})} className={inputStyle} placeholder="LAPORAN PERTANGGUNGJAWABAN" />
+                </div>
+                <div className="md:col-span-2">
                   <label className={labelStyle}>Nama Kegiatan (Wajib)</label>
                   <input type="text" value={config.eventName} onChange={e => setConfig({...config, eventName: e.target.value})} className={inputStyle} placeholder="Contoh: HUT RI Ke-79" />
                 </div>
-                
                 <div>
                   <label className={labelStyle}>Nama Organisasi (Opsional)</label>
                   <input type="text" value={config.organizationName} onChange={e => setConfig({...config, organizationName: e.target.value})} className={inputStyle} placeholder="Contoh: Karang Taruna RW 05" />
                 </div>
-                
                 <div>
                   <label className={labelStyle}>Tanggal Laporan</label>
                   <input type="date" value={config.reportDate} onChange={e => setConfig({...config, reportDate: e.target.value})} className={inputStyle} />
                 </div>
+                <div className="md:col-span-2">
+                  <label className={labelStyle}>Logo Organisasi / Kegiatan</label>
+                  <div className="flex items-center gap-4 p-4 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50">
+                    {config.logoBase64 ? (
+                      <div className="relative group">
+                        <img src={config.logoBase64} className="w-16 h-16 object-contain rounded-lg border bg-white p-1" />
+                        <button 
+                          onClick={() => setConfig({...config, logoBase64: ''})}
+                          className="absolute -top-2 -right-2 bg-rose-500 text-white p-1 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 bg-slate-200 rounded-lg flex items-center justify-center">
+                        <ImageIcon className="w-8 h-8 text-slate-400" />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <p className="text-xs text-slate-500 mb-2">Upload logo dalam format PNG/JPG untuk cover dan kop.</p>
+                      <input type="file" ref={logoInputRef} className="hidden" accept="image/*" onChange={handleLogoUpload} />
+                      <button 
+                        onClick={() => logoInputRef.current?.click()}
+                        className="flex items-center gap-2 bg-white border-2 border-slate-200 px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-100 transition-all"
+                      >
+                        <Upload className="w-3 h-3" /> PILIH LOGO
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {config.reportMode === 'Lengkap' && (
+                  <div className="md:col-span-2">
+                    <label className={labelStyle}>Lokasi Pelaksanaan (Cover)</label>
+                    <input type="text" value={config.location} onChange={e => setConfig({...config, location: e.target.value})} className={inputStyle} placeholder="Contoh: Jakarta Pusat, 2024" />
+                  </div>
+                )}
 
                 <div className="border-t border-slate-100 pt-4 md:col-span-2">
-                   <p className="text-xs font-black text-slate-500 mb-4 flex items-center gap-2"><User className="w-3 h-3"/> PENANDATANGAN (ISI NAMA UNTUK MENAMPILKAN)</p>
+                   <p className="text-xs font-black text-slate-500 mb-4 flex items-center gap-2"><User className="w-3 h-3"/> PENANDATANGAN</p>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-6">
                       <div className="space-y-2">
-                        <label className={labelStyle}>Judul Jabatan 1</label>
-                        <input type="text" value={config.chairpersonTitle} onChange={e => setConfig({...config, chairpersonTitle: e.target.value})} className={`${inputStyle} text-xs font-bold bg-slate-50 border-slate-300`} placeholder="Ketua Panitia" />
+                        <label className={labelStyle}>Jabatan 1</label>
+                        <input type="text" value={config.chairpersonTitle} onChange={e => setConfig({...config, chairpersonTitle: e.target.value})} className={inputStyle} placeholder="Ketua Panitia" />
                         <label className={labelStyle}>Nama Pejabat 1</label>
                         <input type="text" value={config.chairpersonName} onChange={e => setConfig({...config, chairpersonName: e.target.value})} className={inputStyle} placeholder="Nama Lengkap" />
                       </div>
                       <div className="space-y-2">
-                        <label className={labelStyle}>Judul Jabatan 2</label>
-                        <input type="text" value={config.treasurerTitle} onChange={e => setConfig({...config, treasurerTitle: e.target.value})} className={`${inputStyle} text-xs font-bold bg-slate-50 border-slate-300`} placeholder="Bendahara" />
+                        <label className={labelStyle}>Jabatan 2</label>
+                        <input type="text" value={config.treasurerTitle} onChange={e => setConfig({...config, treasurerTitle: e.target.value})} className={inputStyle} placeholder="Bendahara" />
                         <label className={labelStyle}>Nama Pejabat 2</label>
                         <input type="text" value={config.treasurerName} onChange={e => setConfig({...config, treasurerName: e.target.value})} className={inputStyle} placeholder="Nama Lengkap" />
                       </div>
                       <div className="space-y-2">
-                        <label className={labelStyle}>Judul Jabatan 3</label>
-                        <input type="text" value={config.official3Title} onChange={e => setConfig({...config, official3Title: e.target.value})} className={`${inputStyle} text-xs font-bold bg-slate-50 border-slate-300`} placeholder="Sekretaris / Lainnya" />
+                        <label className={labelStyle}>Jabatan 3 (Opsional)</label>
+                        <input type="text" value={config.official3Title} onChange={e => setConfig({...config, official3Title: e.target.value})} className={inputStyle} placeholder="Sekretaris" />
                         <label className={labelStyle}>Nama Pejabat 3</label>
                         <input type="text" value={config.official3Name} onChange={e => setConfig({...config, official3Name: e.target.value})} className={inputStyle} placeholder="Nama Lengkap" />
                       </div>
                       <div className="space-y-2">
-                        <label className={labelStyle}>Judul Jabatan 4</label>
-                        <input type="text" value={config.official4Title} onChange={e => setConfig({...config, official4Title: e.target.value})} className={`${inputStyle} text-xs font-bold bg-slate-50 border-slate-300`} placeholder="Pembina / Lainnya" />
+                        <label className={labelStyle}>Jabatan 4 (Opsional)</label>
+                        <input type="text" value={config.official4Title} onChange={e => setConfig({...config, official4Title: e.target.value})} className={inputStyle} placeholder="Mengetahui" />
                         <label className={labelStyle}>Nama Pejabat 4</label>
                         <input type="text" value={config.official4Name} onChange={e => setConfig({...config, official4Name: e.target.value})} className={inputStyle} placeholder="Nama Lengkap" />
                       </div>
@@ -413,11 +393,10 @@ const App: React.FC = () => {
                   </button>
                 </div>
               </div>
-
               <form onSubmit={addTransaction} className="grid grid-cols-1 md:grid-cols-12 gap-3 mb-8 bg-slate-50 p-6 rounded-2xl border-2 border-dashed border-slate-200">
-                <div className="md:col-span-3"><input type="date" value={newTx.date} onChange={e => setNewTx({...newTx, date: e.target.value})} className={`${inputStyle} bg-white text-slate-900`} /></div>
-                <div className="md:col-span-4"><input type="text" placeholder="Keterangan" value={newTx.description} onChange={e => setNewTx({...newTx, description: e.target.value})} className={`${inputStyle} bg-white text-slate-900`} /></div>
-                <div className="md:col-span-3"><input type="number" placeholder="Nominal" value={newTx.amount} onChange={e => setNewTx({...newTx, amount: e.target.value})} className={`${inputStyle} bg-white text-slate-900`} /></div>
+                <div className="md:col-span-3"><input type="date" value={newTx.date} onChange={e => setNewTx({...newTx, date: e.target.value})} className={`${inputStyle} bg-white`} /></div>
+                <div className="md:col-span-4"><input type="text" placeholder="Keterangan" value={newTx.description} onChange={e => setNewTx({...newTx, description: e.target.value})} className={`${inputStyle} bg-white`} /></div>
+                <div className="md:col-span-3"><input type="number" placeholder="Nominal" value={newTx.amount} onChange={e => setNewTx({...newTx, amount: e.target.value})} className={`${inputStyle} bg-white`} /></div>
                 <div className="md:col-span-2"><button type="submit" className="w-full h-full bg-slate-900 text-white rounded-xl font-bold hover:bg-blue-600 shadow-lg py-3">Tambah</button></div>
                 <div className="md:col-span-12">
                    <select value={newTx.type} onChange={e => setNewTx({...newTx, type: e.target.value as any})} className="w-full p-2 text-xs font-bold uppercase text-slate-600 bg-white border-b border-slate-300 outline-none rounded-t-lg">
@@ -426,70 +405,42 @@ const App: React.FC = () => {
                   </select>
                 </div>
               </form>
-
               <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-                <table className="w-full text-left min-w-[800px]">
-                  <thead className="bg-slate-50 text-slate-500 font-bold text-[10px] uppercase border-b">
+                <table className="w-full text-left min-w-[800px] bg-white">
+                  <thead className="bg-slate-50 text-slate-600 font-bold text-base uppercase border-b">
                     <tr>
-                      <th className="p-3 w-16 text-center">No</th>
-                      <th className="p-3 w-32">Tgl</th>
-                      <th className="p-3">Keterangan</th>
-                      <th className="p-3 w-32 text-right">Debit (Masuk)</th>
-                      <th className="p-3 w-32 text-right">Kredit (Keluar)</th>
-                      <th className="p-3 w-10"></th>
+                      <th className="p-4 w-16 text-center bg-white">NO</th>
+                      <th className="p-4 w-32 bg-white">TGL</th>
+                      <th className="p-4 bg-white">KETERANGAN</th>
+                      <th className="p-4 w-32 text-right bg-white">DEBIT</th>
+                      <th className="p-4 w-32 text-right bg-white">KREDIT</th>
+                      <th className="p-4 w-10 bg-white"></th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y text-sm text-slate-700">
+                  <tbody className="divide-y text-slate-700 bg-white">
                     {transactions.length === 0 ? (
-                      <tr><td colSpan={6} className="p-10 text-center text-slate-400 italic">Belum ada data. Gunakan formulir di atas atau Scan Nota.</td></tr>
+                      <tr><td colSpan={6} className="p-10 text-center text-slate-400 italic bg-white">Belum ada data.</td></tr>
                     ) : (
                       transactions.map((t, i) => (
-                        <tr key={t.id} className="hover:bg-slate-50">
-                          <td className="p-2">
-                            <input 
-                              type="text" 
-                              value={t.manualNo || (i + 1)} 
-                              onChange={e => updateTransaction(t.id, { manualNo: e.target.value })}
-                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400 text-center"
-                            />
+                        <tr key={t.id} className="hover:bg-slate-50 bg-white">
+                          <td className="p-2 bg-white border-b border-slate-100">
+                            <input type="text" value={t.manualNo || (i + 1)} onChange={e => updateTransaction(t.id, { manualNo: e.target.value })} className="w-full p-2 text-center text-base border-none outline-none focus:ring-0 bg-white text-slate-900 font-normal" />
                           </td>
-                          <td className="p-2">
-                            <input 
-                              type="date" 
-                              value={t.date} 
-                              onChange={e => updateTransaction(t.id, { date: e.target.value })}
-                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400"
-                            />
+                          <td className="p-2 bg-white border-b border-slate-100">
+                            <input type="date" value={t.date} onChange={e => updateTransaction(t.id, { date: e.target.value })} className="w-full p-2 text-base border-none outline-none bg-white text-slate-900 font-normal" />
                           </td>
-                          <td className="p-2">
-                            <input 
-                              type="text" 
-                              value={t.description} 
-                              onChange={e => updateTransaction(t.id, { description: e.target.value })}
-                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-400 font-medium"
-                            />
+                          <td className="p-2 bg-white border-b border-slate-100">
+                            <input type="text" value={t.description} onChange={e => updateTransaction(t.id, { description: e.target.value })} className="w-full p-2 text-base border-none outline-none font-normal bg-white text-slate-900" />
                           </td>
-                          <td className="p-2">
-                            <input 
-                              type="number" 
-                              value={t.type === 'Pemasukan' ? t.amount : ''} 
-                              placeholder="0"
-                              onChange={e => updateTransaction(t.id, { amount: Number(e.target.value), type: 'Pemasukan' })}
-                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-emerald-400 text-right text-emerald-600 font-bold"
-                            />
+                          <td className="p-2 bg-white border-b border-slate-100">
+                            <input type="number" value={t.type === 'Pemasukan' ? t.amount : ''} placeholder="0" onChange={e => updateTransaction(t.id, { amount: Number(e.target.value), type: 'Pemasukan' })} className="w-full p-2 text-base border-none outline-none text-right text-emerald-600 font-normal bg-white" />
                           </td>
-                          <td className="p-2">
-                            <input 
-                              type="number" 
-                              value={t.type === 'Pengeluaran' ? t.amount : ''} 
-                              placeholder="0"
-                              onChange={e => updateTransaction(t.id, { amount: Number(e.target.value), type: 'Pengeluaran' })}
-                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-rose-400 text-right text-rose-600 font-bold"
-                            />
+                          <td className="p-2 bg-white border-b border-slate-100">
+                            <input type="number" value={t.type === 'Pengeluaran' ? t.amount : ''} placeholder="0" onChange={e => updateTransaction(t.id, { amount: Number(e.target.value), type: 'Pengeluaran' })} className="w-full p-2 text-base border-none outline-none text-right text-rose-600 font-normal bg-white" />
                           </td>
-                          <td className="p-2 text-center">
-                            <button onClick={() => setTransactions(transactions.filter(x => x.id !== t.id))} className="text-slate-300 hover:text-red-500 transition-colors">
-                              <Trash2 className="w-4 h-4" />
+                          <td className="p-2 text-center bg-white border-b border-slate-100">
+                            <button onClick={() => setTransactions(transactions.filter(x => x.id !== t.id))} className="text-slate-300 hover:text-red-500 bg-transparent p-2 rounded-lg transition-colors">
+                              <Trash2 className="w-5 h-5" />
                             </button>
                           </td>
                         </tr>
@@ -502,110 +453,251 @@ const App: React.FC = () => {
           </div>
 
           <div className="space-y-6">
-            <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+            <section className={`bg-white p-8 rounded-3xl shadow-sm border-2 ${config.reportMode === 'Cepat' ? 'border-blue-100' : 'border-emerald-100'}`}>
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold flex items-center gap-2 text-purple-700"><Sparkles className="w-6 h-6" /> Narasi AI</h2>
-                <button onClick={async () => {
+                <h2 className={`text-xl font-bold flex items-center gap-2 ${config.reportMode === 'Cepat' ? 'text-blue-700' : 'text-emerald-700'}`}>
+                  <Sparkles className="w-6 h-6" /> {config.reportMode === 'Cepat' ? 'AI Narasi Cepat' : 'AI Narasi Lengkap'}
+                </h2>
+                <button 
+                  onClick={async () => {
+                    if (transactions.length === 0) return;
                     setIsGeneratingAI(true);
-                    const res = await generateReportNarrative({ config, transactions }, activeApiKey);
-                    if (res) setConfig({...config, background: res.background, conclusion: res.conclusion});
-                    setIsGeneratingAI(false);
-                }} disabled={isGeneratingAI || transactions.length === 0} className="bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-500 transition shadow-md disabled:opacity-50">
-                  {isGeneratingAI ? <Loader2 className="w-3 h-3 animate-spin" /> : 'GENERASI TEKS'}
+                    try {
+                      const res = await generateReportNarrative({ config, transactions });
+                      if (res) {
+                        if (config.reportMode === 'Cepat') {
+                          setConfig(prev => ({...prev, background: res.background || prev.background, conclusion: res.conclusion || prev.conclusion}));
+                        } else {
+                          setConfig(prev => ({
+                            ...prev, 
+                            background: res.background || prev.background, 
+                            conclusion: res.conclusion || prev.conclusion,
+                            tujuan: res.tujuan || prev.tujuan,
+                            sasaran: res.sasaran || prev.sasaran,
+                            waktuTempat: res.waktuTempat || prev.waktuTempat,
+                            peserta: res.peserta || prev.peserta,
+                            mekanisme: res.mekanisme || prev.mekanisme,
+                            hasil: res.hasil || prev.hasil,
+                            hambatan: res.hambatan || prev.hambatan,
+                            saran: res.saran || prev.saran
+                          }));
+                        }
+                      }
+                    } catch (err) {
+                      console.error(err);
+                      alert("AI gagal memproses narasi. Pastikan data terisi.");
+                    } finally {
+                      setIsGeneratingAI(false);
+                    }
+                  }} 
+                  disabled={isGeneratingAI || transactions.length === 0} 
+                  className={`${config.reportMode === 'Cepat' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'} text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-md disabled:opacity-50`}
+                >
+                  {isGeneratingAI ? <Loader2 className="w-3 h-3 animate-spin" /> : 'GENERASI AI'}
                 </button>
               </div>
-              <textarea value={config.background} onChange={e => setConfig({...config, background: e.target.value})} className={`${inputStyle} bg-white text-slate-900 h-40 resize-none text-sm mb-4 leading-relaxed`} placeholder="Tulis atau hasilkan latar belakang..." />
-              <textarea value={config.conclusion} onChange={e => setConfig({...config, conclusion: e.target.value})} className={`${inputStyle} bg-white text-slate-900 h-40 resize-none text-sm leading-relaxed`} placeholder="Tulis atau hasilkan kesimpulan..." />
+
+              <div className="space-y-4">
+                <div>
+                  <label className={labelStyle}>I. Latar Belakang</label>
+                  <textarea value={config.background} onChange={e => setConfig({...config, background: e.target.value})} className={`${inputStyle} h-32 resize-none text-sm`} />
+                </div>
+
+                {config.reportMode === 'Lengkap' && (
+                  <>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className={labelStyle}>I. Tujuan Kegiatan</label>
+                        <textarea value={config.tujuan} onChange={e => setConfig({...config, tujuan: e.target.value})} className={`${inputStyle} h-20 resize-none text-sm`} />
+                      </div>
+                      <div>
+                        <label className={labelStyle}>I. Sasaran / Target</label>
+                        <textarea value={config.sasaran} onChange={e => setConfig({...config, sasaran: e.target.value})} className={`${inputStyle} h-20 resize-none text-sm`} />
+                      </div>
+                    </div>
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className={labelStyle}>II. Waktu & Tempat</label>
+                      <textarea value={config.waktuTempat} onChange={e => setConfig({...config, waktuTempat: e.target.value})} className={`${inputStyle} h-20 resize-none text-sm`} />
+                    </div>
+                    <div>
+                      <label className={labelStyle}>II. Peserta & Mekanisme</label>
+                      <textarea value={config.mekanisme} onChange={e => setConfig({...config, mekanisme: e.target.value})} className={`${inputStyle} h-24 resize-none text-sm`} />
+                    </div>
+                    <div className="border-t border-slate-100 pt-4">
+                      <label className={labelStyle}>IV. Hasil & Evaluasi</label>
+                      <textarea value={config.hasil} onChange={e => setConfig({...config, hasil: e.target.value})} className={`${inputStyle} h-20 resize-none text-sm`} placeholder="Hasil Kegiatan" />
+                    </div>
+                    <div className="grid grid-cols-1 gap-4">
+                      <div>
+                        <label className={labelStyle}>IV. Hambatan</label>
+                        <textarea value={config.hambatan} onChange={e => setConfig({...config, hambatan: e.target.value})} className={`${inputStyle} h-20 resize-none text-sm`} />
+                      </div>
+                      <div>
+                        <label className={labelStyle}>IV. Saran Perbaikan</label>
+                        <textarea value={config.saran} onChange={e => setConfig({...config, saran: e.target.value})} className={`${inputStyle} h-20 resize-none text-sm`} />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="border-t border-slate-100 pt-4">
+                  <label className={labelStyle}>Penutup</label>
+                  <textarea value={config.conclusion} onChange={e => setConfig({...config, conclusion: e.target.value})} className={`${inputStyle} h-24 resize-none text-sm`} />
+                </div>
+              </div>
             </section>
           </div>
         </div>
       </div>
 
+      {/* Preview Dokumen */}
       <div className="bg-slate-700 py-20 flex justify-center overflow-x-auto no-print">
-        <div ref={reportRef} className="a4-preview flex flex-col shadow-2xl bg-white text-black" style={{ color: 'black' }}>
-          <div className="text-center border-b-4 border-double border-black pb-8 mb-12 text-black">
-            <h1 className="text-xl font-bold uppercase underline tracking-wider text-black">LAPORAN PERTANGGUNGJAWABAN (LPJ) KEUANGAN</h1>
-            <h2 className="text-4xl font-black text-blue-900 mt-4 uppercase leading-none">{config.eventName || '[NAMA KEGIATAN]'}</h2>
-            {config.organizationName && <p className="text-xl font-bold uppercase text-slate-700 mt-2">{config.organizationName}</p>}
-            <p className="text-sm mt-6 font-mono font-bold bg-slate-100 py-1.5 px-6 inline-block rounded-full border border-slate-200 text-black">TANGGAL LAPORAN: {config.reportDate}</p>
+        <div ref={reportRef} className="a4-preview flex flex-col shadow-2xl bg-white !text-slate-900">
+          {config.reportMode === 'Lengkap' && (
+            <div className="flex flex-col items-center justify-center text-center min-h-[900px] mb-20 border-b-2 border-slate-100 pb-20">
+               {config.logoBase64 && (
+                 <img src={config.logoBase64} className="w-40 h-40 object-contain mb-12" alt="Logo Cover" />
+               )}
+               <h1 className="text-3xl font-bold uppercase tracking-[0.2em] mb-4">{config.reportTitle || 'LAPORAN PERTANGGUNGJAWABAN'}</h1>
+               <h2 className="text-5xl font-black text-blue-900 mt-4 uppercase leading-tight max-w-2xl">{config.eventName || '[NAMA KEGIATAN]'}</h2>
+               <div className="w-32 h-1 bg-blue-900 my-10"></div>
+               {config.organizationName && <p className="text-2xl font-bold uppercase text-slate-700">{config.organizationName}</p>}
+               <div className="mt-auto">
+                  <p className="text-xl font-bold uppercase tracking-widest">{config.location || '[LOKASI & TAHUN]'}</p>
+               </div>
+            </div>
+          )}
+
+          <div className="border-b-4 border-double border-black pb-8 mb-12 flex items-center gap-6">
+            {config.logoBase64 && (
+              <img src={config.logoBase64} className="w-24 h-24 object-contain" alt="Logo Kop" />
+            )}
+            <div className={`flex-1 ${config.logoBase64 ? 'text-left' : 'text-center'}`}>
+              <h1 className="text-xl font-bold uppercase underline tracking-wider">{config.reportTitle || 'LAPORAN PERTANGGUNGJAWABAN'}</h1>
+              <h2 className="text-4xl font-black text-blue-900 mt-2 uppercase leading-none">{config.eventName || '[NAMA KEGIATAN]'}</h2>
+              {config.organizationName && <p className="text-xl font-bold uppercase text-slate-700 mt-2">{config.organizationName}</p>}
+              <p className="text-xs mt-4 font-mono font-bold bg-slate-100 py-1 px-4 inline-block rounded-full border border-slate-200">TANGGAL LAPORAN: {config.reportDate}</p>
+            </div>
           </div>
 
-          <div className="mb-10 px-4 text-black">
-            <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-4 uppercase text-black">I. PENDAHULUAN</h3>
-            <p className="text-sm leading-relaxed text-justify text-black whitespace-pre-wrap">{config.background || 'Belum diisi.'}</p>
+          {/* Bab I: Pendahuluan */}
+          <div className="mb-10 px-4">
+            <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-4 uppercase">I. PENDAHULUAN</h3>
+            <div className="space-y-4 text-base leading-relaxed text-justify">
+              <p className="font-bold underline mb-1">1.1 Latar Belakang</p>
+              <p className="whitespace-pre-wrap">{config.background || 'Belum diisi.'}</p>
+              {config.reportMode === 'Lengkap' && (
+                <>
+                  <p className="font-bold underline mt-4 mb-1">1.2 Tujuan Kegiatan</p>
+                  <p className="whitespace-pre-wrap">{config.tujuan || '-'}</p>
+                  <p className="font-bold underline mt-4 mb-1">1.3 Sasaran / Target</p>
+                  <p className="whitespace-pre-wrap">{config.sasaran || '-'}</p>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="mb-10 px-4 text-black">
-            <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-6 uppercase text-black">II. RINCIAN ANGGARAN KEUANGAN</h3>
-            <table className="w-full border-collapse border-2 border-black text-sm text-black">
+          {/* Bab II: Pelaksanaan (Mode Lengkap) */}
+          {config.reportMode === 'Lengkap' && (
+            <div className="mb-10 px-4">
+              <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-4 uppercase">II. PELAKSANAAN KEGIATAN</h3>
+              <div className="space-y-4 text-base leading-relaxed text-justify">
+                <p className="font-bold underline mb-1">2.1 Waktu dan Tempat</p>
+                <p className="whitespace-pre-wrap">{config.waktuTempat || '-'}</p>
+                <p className="font-bold underline mt-4 mb-1">2.2 Mekanisme Kegiatan</p>
+                <p className="whitespace-pre-wrap">{config.mekanisme || '-'}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Bab III: Keuangan */}
+          <div className="mb-10 px-4">
+            <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-6 uppercase">
+              {config.reportMode === 'Cepat' ? 'II. RINCIAN ANGGARAN KEUANGAN' : 'III. LAPORAN KEUANGAN'}
+            </h3>
+            <table className="w-full border-collapse border-2 border-black text-sm">
               <thead>
-                <tr className="bg-slate-100 text-black">
-                  <th className="border-2 border-black p-3 text-center w-12 text-black font-bold">No</th>
-                  <th className="border-2 border-black p-3 text-center w-32 text-black font-bold">Tanggal</th>
-                  <th className="border-2 border-black p-3 text-left text-black font-bold">Deskripsi Transaksi</th>
-                  <th className="border-2 border-black p-3 text-right text-black font-bold">Debit (Masuk)</th>
-                  <th className="border-2 border-black p-3 text-right text-black font-bold">Kredit (Keluar)</th>
+                <tr className="bg-slate-100">
+                  <th className="border-2 border-black p-3 text-center w-12 font-bold !text-slate-900">No</th>
+                  <th className="border-2 border-black p-3 text-center w-32 font-bold !text-slate-900">Tanggal</th>
+                  <th className="border-2 border-black p-3 text-left font-bold !text-slate-900">Deskripsi Transaksi</th>
+                  <th className="border-2 border-black p-3 text-right font-bold !text-slate-900">Debit (Masuk)</th>
+                  <th className="border-2 border-black p-3 text-right font-bold !text-slate-900">Kredit (Keluar)</th>
                 </tr>
               </thead>
-              <tbody className="text-black">
+              <tbody className="!text-slate-900">
                 {transactions.length > 0 ? transactions.map((t, i) => (
-                  <tr key={t.id} style={{ minHeight: '40px' }} className="text-black">
-                    <td className="border border-black p-2.5 text-center align-middle text-black">{t.manualNo || (i + 1)}</td>
-                    <td className="border border-black p-2.5 text-center font-mono align-middle text-black">{t.date}</td>
-                    <td className="border border-black p-2.5 font-medium align-middle text-black">{t.description}</td>
-                    <td className="border border-black p-2.5 text-right align-middle text-black">{t.type === 'Pemasukan' ? formatIDR(t.amount) : '-'}</td>
-                    <td className="border border-black p-2.5 text-right align-middle text-black">{t.type === 'Pengeluaran' ? formatIDR(t.amount) : '-'}</td>
+                  <tr key={t.id} style={{ minHeight: '40px' }} className="!text-slate-900">
+                    <td className="border border-black p-2.5 text-center align-middle !text-slate-900">{t.manualNo || (i + 1)}</td>
+                    <td className="border border-black p-2.5 text-center font-mono align-middle !text-slate-900">{t.date}</td>
+                    <td className="border border-black p-2.5 font-medium align-middle !text-slate-900">{t.description}</td>
+                    <td className="border border-black p-2.5 text-right align-middle !text-slate-900">{t.type === 'Pemasukan' ? formatIDR(t.amount) : '-'}</td>
+                    <td className="border border-black p-2.5 text-right align-middle !text-slate-900">{t.type === 'Pengeluaran' ? formatIDR(t.amount) : '-'}</td>
                   </tr>
                 )) : (
-                   <tr className="text-black"><td colSpan={5} className="border border-black p-10 text-center italic text-slate-400">Belum ada transaksi terekam.</td></tr>
+                   <tr><td colSpan={5} className="border border-black p-10 text-center italic text-slate-400">Belum ada transaksi terekam.</td></tr>
                 )}
               </tbody>
-              <tfoot className="font-bold border-2 border-black text-black">
-                <tr className="bg-slate-100 text-black">
-                  <td colSpan={3} className="border border-black p-3 text-right uppercase text-sm text-black">Subtotal Kas</td>
-                  <td className="border border-black p-3 text-right text-black text-sm font-bold">{formatIDR(totalIncome)}</td>
-                  <td className="border border-black p-3 text-right text-black text-sm font-bold">{formatIDR(totalExpense)}</td>
+              <tfoot className="font-bold border-2 border-black">
+                <tr className="bg-slate-100">
+                  <td colSpan={3} className="border border-black p-3 text-right uppercase text-sm !text-slate-900">Subtotal Kas</td>
+                  <td className="border border-black p-3 text-right text-sm font-bold !text-slate-900">{formatIDR(totalIncome)}</td>
+                  <td className="border border-black p-3 text-right text-sm font-bold !text-slate-900">{formatIDR(totalExpense)}</td>
                 </tr>
                 <tr className="bg-blue-900 text-white">
-                  <td colSpan={3} className="p-4 text-right uppercase tracking-widest text-sm font-bold text-white">Saldo Akhir Panitia</td>
-                  <td colSpan={2} className="p-4 text-center text-2xl font-black text-white">{formatIDR(balance)}</td>
+                  <td colSpan={3} className="p-4 text-right uppercase tracking-widest text-sm font-bold">Saldo Akhir Panitia</td>
+                  <td colSpan={2} className="p-4 text-center text-2xl font-black">{formatIDR(balance)}</td>
                 </tr>
               </tfoot>
             </table>
           </div>
 
-          <div className="mb-12 px-4 text-black">
-            <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-4 uppercase text-black">III. PENUTUP</h3>
-            <p className="text-sm leading-relaxed text-justify text-black whitespace-pre-wrap">{config.conclusion || 'Belum diisi.'}</p>
+          {/* Bab IV: Evaluasi & Penutup */}
+          <div className="mb-12 px-4">
+            <h3 className="font-bold text-lg border-l-8 border-blue-900 pl-4 mb-4 uppercase">
+              {config.reportMode === 'Cepat' ? 'III. PENUTUP' : 'IV. EVALUASI DAN PENUTUP'}
+            </h3>
+            <div className="space-y-4 text-base leading-relaxed text-justify">
+              {config.reportMode === 'Lengkap' && (
+                <>
+                  <p className="font-bold underline mb-1">4.1 Hasil Kegiatan</p>
+                  <p className="whitespace-pre-wrap">{config.hasil || '-'}</p>
+                  <p className="font-bold underline mt-4 mb-1">4.2 Hambatan / Kendala</p>
+                  <p className="whitespace-pre-wrap">{config.hambatan || '-'}</p>
+                  <p className="font-bold underline mt-4 mb-1">4.3 Saran / Rekomendasi</p>
+                  <p className="whitespace-pre-wrap">{config.saran || '-'}</p>
+                  <p className="font-bold underline mt-4 mb-1">4.4 Penutup</p>
+                </>
+              )}
+              <p className="whitespace-pre-wrap">{config.conclusion || 'Belum diisi.'}</p>
+            </div>
           </div>
 
-          <div className="mt-auto pt-16 pb-12 px-4 text-black">
-            <p className="text-center font-bold text-sm uppercase mb-12 text-black">MENGETAHUI,</p>
-            <div className={`grid gap-y-16 text-center ${displaySigners.length === 1 ? 'grid-cols-1' : 'grid-cols-2'} text-black`}>
+          {/* Tanda Tangan */}
+          <div className="mt-auto pt-16 pb-12 px-4">
+            <p className="text-center font-bold text-sm uppercase mb-12">MENGETAHUI,</p>
+            <div className={`grid gap-10 text-center ${displaySigners.length <= 2 ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4'}`}>
               {displaySigners.map((signer, idx) => (
-                <div key={idx} className={displaySigners.length === 1 ? 'max-w-xs mx-auto text-black' : 'text-black'}>
-                  <p className="text-sm font-bold mb-28 uppercase text-black leading-tight">
-                    {signer.title}
-                  </p>
-                  <p className="font-bold underline text-xl text-black">
-                    {signer.name || '....................'}
-                  </p>
+                <div key={idx} className="flex flex-col">
+                  <p className="text-sm font-bold mb-28 uppercase leading-tight h-10">{signer.title}</p>
+                  <p className="font-bold underline text-lg whitespace-nowrap">{signer.name || '....................'}</p>
                 </div>
               ))}
             </div>
           </div>
 
+          {/* Lampiran */}
           {transactions.some(t => t.receiptBase64) && (
-            <div className="mt-20 pt-20 border-t-4 border-double border-slate-400 px-4 text-black">
-              <h3 className="text-center font-bold text-3xl mb-12 uppercase underline tracking-widest text-black">LAMPIRAN BUKTI TRANSAKSI</h3>
-              <div className="grid grid-cols-2 gap-10 text-black">
+            <div className="mt-20 pt-20 border-t-4 border-double border-slate-400 px-4 page-break-before">
+              <h3 className="text-center font-bold text-3xl mb-12 uppercase underline tracking-widest">LAMPIRAN BUKTI TRANSAKSI</h3>
+              <div className="grid grid-cols-2 gap-10">
                 {Array.from(new Set(transactions.map(t => t.receiptBase64).filter(Boolean))).map((img, idx) => {
                   const relatedTx = transactions.find(t => t.receiptBase64 === img);
                   const displayDate = relatedTx ? formatIndonesianDate(relatedTx.date) : '';
                   return (
-                    <div key={idx} className="border-2 border-slate-100 p-5 rounded-3xl bg-white flex flex-col items-center shadow-sm text-black">
+                    <div key={idx} className="border-2 border-slate-100 p-5 rounded-3xl bg-white flex flex-col items-center shadow-sm">
                       <img src={img!} className="max-h-[400px] object-contain mb-4 rounded-xl shadow-md" alt="Nota" />
-                      <p className="text-xs text-slate-400 font-black uppercase tracking-tighter text-black">BUKTI TRANSAKSI {displayDate}</p>
+                      <p className="text-xs text-slate-400 font-black uppercase tracking-tighter text-center">BUKTI TRANSAKSI {displayDate}</p>
                     </div>
                   );
                 })}
