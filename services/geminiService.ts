@@ -3,12 +3,10 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { LPJData } from "../types";
 import { formatIDR } from "../utils";
 
-export const generateReportNarrative = async (data: LPJData, userApiKey?: string) => {
-  // Gunakan key dari user jika ada, jika tidak gunakan dari environment
-  const apiKey = userApiKey || process.env.API_KEY;
-  if (!apiKey) return null;
-
-  const ai = new GoogleGenAI({ apiKey });
+// Initialize AI using the environment API key as per guidelines
+export const generateReportNarrative = async (data: LPJData) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const isLengkap = data.config.reportMode === 'Lengkap';
 
   const totalIncome = data.transactions
     .filter(t => t.type === 'Pemasukan')
@@ -21,46 +19,86 @@ export const generateReportNarrative = async (data: LPJData, userApiKey?: string
     .map(t => `- ${t.date}: ${t.description} (${t.type}: ${formatIDR(t.amount)})`)
     .join('\n');
 
-  const prompt = `
-    Bertindaklah sebagai Sekretaris Organisasi profesional. Buat narasi LPJ formal dalam Bahasa Indonesia.
-    Kegiatan: ${data.config.eventName}
-    Organisasi: ${data.config.organizationName}
-    Ringkasan Kas: Masuk ${formatIDR(totalIncome)}, Keluar ${formatIDR(totalExpense)}, Saldo ${formatIDR(totalIncome - totalExpense)}.
-    
-    Detail Transaksi:
-    ${transactionList}
+  let prompt = '';
+  let responseSchema: any = {};
 
-    Berikan output JSON: "background" (paragraf pembuka yang elegan) dan "conclusion" (paragraf penutup dan harapan).
-  `;
+  if (!isLengkap) {
+    prompt = `
+      Bertindaklah sebagai Sekretaris Organisasi profesional. Buat narasi LPJ CEPAT (Sederhana) dalam Bahasa Indonesia.
+      Kegiatan: ${data.config.eventName}
+      Organisasi: ${data.config.organizationName}
+      Detail Transaksi:
+      ${transactionList}
+
+      Berikan output JSON: "background" (latar belakang) dan "conclusion" (penutup).
+    `;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        background: { type: Type.STRING },
+        conclusion: { type: Type.STRING }
+      },
+      required: ["background", "conclusion"]
+    };
+  } else {
+    prompt = `
+      Bertindaklah sebagai Sekretaris Organisasi profesional. Buat narasi LPJ LENGKAP yang mendalam dalam Bahasa Indonesia.
+      Kegiatan: ${data.config.eventName}
+      Organisasi: ${data.config.organizationName}
+      Ringkasan Kas: Masuk ${formatIDR(totalIncome)}, Keluar ${formatIDR(totalExpense)}.
+      
+      Detail Transaksi:
+      ${transactionList}
+
+      Berikan output JSON with field berikut (semua dalam Bahasa Indonesia yang formal):
+      - background: Latar belakang kegiatan secara naratif.
+      - tujuan: Tujuan utama dilaksanakannya kegiatan ini.
+      - sasaran: Target peserta atau penerima manfaat.
+      - waktuTempat: Ringkasan naratif waktu dan lokasi pelaksanaan.
+      - peserta: Deskripsi kehadiran peserta.
+      - mekanisme: Ringkasan jalannya acara dari awal hingga akhir.
+      - hasil: Dampak positif atau pencapaian kegiatan.
+      - hambatan: Kendala atau masalah yang dihadapi di lapangan.
+      - saran: Rekomendasi untuk panitia di masa mendatang.
+      - conclusion: Kalimat penutup formal.
+    `;
+    responseSchema = {
+      type: Type.OBJECT,
+      properties: {
+        background: { type: Type.STRING },
+        tujuan: { type: Type.STRING },
+        sasaran: { type: Type.STRING },
+        waktuTempat: { type: Type.STRING },
+        peserta: { type: Type.STRING },
+        mekanisme: { type: Type.STRING },
+        hasil: { type: Type.STRING },
+        hambatan: { type: Type.STRING },
+        saran: { type: Type.STRING },
+        conclusion: { type: Type.STRING }
+      },
+      required: ["background", "tujuan", "sasaran", "waktuTempat", "peserta", "mekanisme", "hasil", "hambatan", "saran", "conclusion"]
+    };
+  }
 
   try {
+    // Upgraded to gemini-3-pro-preview for professional narrative generation (complex task)
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: { parts: [{ text: prompt }] },
       config: {
         responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            background: { type: Type.STRING },
-            conclusion: { type: Type.STRING }
-          },
-          required: ["background", "conclusion"]
-        }
+        responseSchema: responseSchema
       }
     });
-    return JSON.parse(response.text);
+    return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("AI Narrative Error:", error);
     return null;
   }
 };
 
-export const analyzeReceipt = async (base64Image: string, userApiKey?: string) => {
-  const apiKey = userApiKey || process.env.API_KEY;
-  if (!apiKey) return null;
-
-  const ai = new GoogleGenAI({ apiKey });
+export const analyzeReceipt = async (base64Image: string) => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const mimeType = base64Image.split(';')[0].split(':')[1];
   const base64Data = base64Image.split(',')[1];
@@ -90,8 +128,9 @@ export const analyzeReceipt = async (base64Image: string, userApiKey?: string) =
   `;
 
   try {
+    // Upgraded to gemini-3-pro-preview for complex image reasoning (financial audit)
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: {
         parts: [
           { inlineData: { mimeType: mimeType, data: base64Data } },
@@ -121,7 +160,7 @@ export const analyzeReceipt = async (base64Image: string, userApiKey?: string) =
         }
       }
     });
-    return JSON.parse(response.text);
+    return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("Scan Error:", error);
     return null;
